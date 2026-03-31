@@ -16,7 +16,7 @@ import (
 
 const (
 	notificationQueueDrainTimeout = 5 * time.Second
-	defaultMaxQueuedNotifications = 1024
+	defaultMaxQueuedNotifications = 16384
 )
 
 var errNotificationQueueOverflow = errors.New("notification queue overflow")
