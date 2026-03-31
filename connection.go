@@ -16,7 +16,7 @@ import (
 
 const (
 	notificationQueueDrainTimeout = 5 * time.Second
-	defaultMaxQueuedNotifications = 16384
+	defaultMaxQueuedNotifications = 1024
 )
 
 var errNotificationQueueOverflow = errors.New("notification queue overflow")
@@ -39,6 +39,25 @@ type cancelRequestParams struct {
 }
 
 type MethodHandler func(ctx context.Context, method string, params json.RawMessage) (any, *RequestError)
+
+// ConnectionOption configures a Connection.
+type ConnectionOption func(*connectionOptions)
+
+type connectionOptions struct {
+	maxQueuedNotifications int
+}
+
+// WithMaxQueuedNotifications sets the capacity of the notification queue.
+// The connection is closed if the queue overflows, so this value should be
+// large enough to absorb bursts (e.g. session history replay via LoadSession).
+// The default is 1024.
+func WithMaxQueuedNotifications(n int) ConnectionOption {
+	return func(o *connectionOptions) {
+		if n > 0 {
+			o.maxQueuedNotifications = n
+		}
+	}
+}
 
 // Connection is a simple JSON-RPC 2.0 connection over line-delimited JSON.
 type Connection struct {
@@ -78,7 +97,13 @@ type Connection struct {
 	notificationQueue chan *anyMessage
 }
 
-func NewConnection(handler MethodHandler, peerInput io.Writer, peerOutput io.Reader) *Connection {
+func NewConnection(handler MethodHandler, peerInput io.Writer, peerOutput io.Reader, opts ...ConnectionOption) *Connection {
+	options := connectionOptions{
+		maxQueuedNotifications: defaultMaxQueuedNotifications,
+	}
+	for _, o := range opts {
+		o(&options)
+	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	inboundCtx, inboundCancel := context.WithCancelCause(context.Background())
 	c := &Connection{
@@ -92,7 +117,7 @@ func NewConnection(handler MethodHandler, peerInput io.Writer, peerOutput io.Rea
 		cancel:              cancel,
 		inboundCtx:          inboundCtx,
 		inboundCancel:       inboundCancel,
-		notificationQueue:   make(chan *anyMessage, defaultMaxQueuedNotifications),
+		notificationQueue:   make(chan *anyMessage, options.maxQueuedNotifications),
 	}
 	go c.sendCancelRequests()
 	go c.receive()
